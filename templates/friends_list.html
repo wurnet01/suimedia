@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ user.username }}'s Friends{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h4>{{ user.username }}'s Friends</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for friend in friends %}
+                        <div class="col-md-4 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <div class="d-flex align-items-center">
+                                        <a href="{{ url_for('profile', username=friend.username) }}">
+                                            <img src="{{ url_for('uploaded_file', filename=friend.get_profile_picture) }}" 
+                                                 class="rounded-circle me-3" 
+                                                 alt="{{ friend.username }}'s profile picture"
+                                                 style="width: 64px; height: 64px; object-fit: cover;">
+                                        </a>
+                                        <div>
+                                            <h5 class="card-title mb-0">
+                                                <a href="{{ url_for('profile', username=friend.username) }}" 
+                                                   class="text-decoration-none">
+                                                    {{ friend.username }}
+                                                </a>
+                                            </h5>
+                                            {% if friend.current_city %}
+                                            <small class="text-muted">{{ friend.current_city }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="col-12">
+                            <p class="text-center text-muted">No friends to display</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

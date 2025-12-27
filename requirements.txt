@@ -1,0 +1,9 @@
+Flask
+Flask-Login
+Flask-SocketIO
+flask-sqlalchemy
+Flask-Admin
+Flask-Migrate
+requests
+beautifulsoup4
+eventlet

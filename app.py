@@ -1,0 +1,914 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_socketio import SocketIO, emit
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from db_config import db, init_db
+from datetime import datetime
+import os
+import re
+import uuid
+from flask_admin import Admin
+from flask_admin.contrib.sqla import ModelView
+from flask_migrate import Migrate
+try:
+    import requests
+    from bs4 import BeautifulSoup
+    LINK_PREVIEW_ENABLED = True
+except ImportError:
+    LINK_PREVIEW_ENABLED = False
+
+app = Flask(__name__)
+# Use environment variable for secret key in production (PythonAnywhere sets env vars in the web UI)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-in-prod')
+# Use instance/uploads for writable uploads (safer on hosted platforms)
+default_upload = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'uploads')
+app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', default_upload)
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 512 * 1024 * 1024))  # 512MB default
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
+ALLOWED_EXTENSIONS = {
+    'image': {'png', 'jpg', 'jpeg', 'gif'},
+    'video': {'mp4', 'webm', 'mov'}
+}
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Initialize database
+init_db(app)
+
+# Ensure upload folder exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Initialize Flask-Migrate
+migrate = Migrate(app, db)
+
+# Initialize Flask-Admin
+admin = Admin(app, name='Database Admin')
+
+class UserSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    show_online_status = db.Column(db.Boolean, default=True)
+    theme = db.Column(db.String(20), default='light')  # 'light', 'dark', or 'dynamic'
+    last_seen = db.Column(db.DateTime)
+    is_online = db.Column(db.Boolean, default=False)
+
+class Education(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    institution = db.Column(db.String(200), nullable=False)
+    degree = db.Column(db.String(100), nullable=True)
+    field_of_study = db.Column(db.String(100), nullable=True)
+    start_date = db.Column(db.Date, nullable=True)
+    end_date = db.Column(db.Date, nullable=True)
+    is_current = db.Column(db.Boolean, default=False)
+    type = db.Column(db.String(20))  # 'school', 'university', etc.
+
+class BlockedUser(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    blocked_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Friends association table
+friends = db.Table('friends',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('friend_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
+)
+
+class FriendRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    notification_type = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+
+# User Model
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128))
+    profile_picture = db.Column(db.String(200), default='defaults/default_profile.png')
+    bio = db.Column(db.Text, default='')
+    cover_photo = db.Column(db.String(200), default='default_cover.jpg')
+    date_of_birth = db.Column(db.Date, nullable=True)
+    place_of_birth = db.Column(db.String(100), nullable=True)
+    marital_status = db.Column(db.String(20), nullable=True)  # Single, Married, etc.
+    current_city = db.Column(db.String(100), nullable=True)
+    current_job = db.Column(db.String(200), nullable=True)
+    job_title = db.Column(db.String(100), nullable=True)
+    company = db.Column(db.String(100), nullable=True)
+    education = db.relationship('Education', backref='user', lazy=True)
+    posts = db.relationship('Post', backref='author', lazy=True)
+    messages_sent = db.relationship('Message', foreign_keys='Message.sender_id', backref='sender', lazy=True)
+    messages_received = db.relationship('Message', foreign_keys='Message.recipient_id', backref='recipient', lazy=True)
+    notifications = db.relationship('Notification', backref='user', lazy=True)
+    comments = db.relationship('Comment', backref='author', lazy=True)
+    settings = db.relationship('UserSettings', backref='user', lazy=True, uselist=False)
+    blocked_users = db.relationship('BlockedUser', 
+        foreign_keys='BlockedUser.user_id',
+        backref='blocker', lazy='dynamic')
+    blocked_by = db.relationship('BlockedUser',
+        foreign_keys='BlockedUser.blocked_user_id',
+        backref='blocked', lazy='dynamic')
+    friends = db.relationship(
+        'User', secondary=friends,
+        primaryjoin=(friends.c.user_id == id),
+        secondaryjoin=(friends.c.friend_id == id),
+        backref=db.backref('friend_of', lazy='dynamic'),
+        lazy='dynamic'
+    )
+    friend_requests_sent = db.relationship('FriendRequest',
+        foreign_keys='FriendRequest.sender_id',
+        backref='sender', lazy='dynamic')
+    friend_requests_received = db.relationship('FriendRequest',
+        foreign_keys='FriendRequest.recipient_id',
+        backref='recipient', lazy='dynamic')
+    
+    @property
+    def get_profile_picture(self):
+        if not self.profile_picture or not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], self.profile_picture)):
+            return 'defaults/default_profile.png'
+        return self.profile_picture
+
+    def get_settings(self):
+        if not self.settings:
+            self.settings = UserSettings(user_id=self.id)
+            db.session.add(self.settings)
+            db.session.commit()
+        return self.settings
+
+    @property
+    def is_online(self):
+        settings = self.get_settings()
+        if not settings.show_online_status:
+            return False
+        return settings.is_online
+
+    def set_online_status(self, status):
+        settings = self.get_settings()
+        settings.is_online = status
+        settings.last_seen = datetime.utcnow()
+        db.session.commit()
+
+    def update_last_seen(self):
+        settings = self.get_settings()
+        settings.last_seen = datetime.utcnow()
+        settings.is_online = True
+        db.session.commit()
+
+    def set_offline(self):
+        settings = self.get_settings()
+        settings.is_online = False
+        db.session.commit()
+
+    def block_user(self, user):
+        if not self.has_blocked(user):
+            block = BlockedUser(user_id=self.id, blocked_user_id=user.id)
+            db.session.add(block)
+            # Remove from friends if they are friends
+            if self.is_friend(user):
+                self.remove_friend(user)
+            db.session.commit()
+
+    def is_friend(self, user):
+        return self.friends.filter_by(id=user.id).first() is not None
+
+    def add_friend(self, user):
+        if not self.is_friend(user):
+            self.friends.append(user)
+            user.friends.append(self)
+            db.session.commit()
+
+    def remove_friend(self, user):
+        if self.is_friend(user):
+            self.friends.remove(user)
+            user.friends.remove(self)
+            db.session.commit()
+
+    def unblock_user(self, user):
+        block = BlockedUser.query.filter_by(user_id=self.id, blocked_user_id=user.id).first()
+        if block:
+            db.session.delete(block)
+            db.session.commit()
+
+    def has_blocked(self, user):
+        return BlockedUser.query.filter_by(user_id=self.id, blocked_user_id=user.id).first() is not None
+
+    def is_blocked_by(self, user):
+        return BlockedUser.query.filter_by(user_id=user.id, blocked_user_id=self.id).first() is not None
+        block = BlockedUser.query.filter_by(
+            user_id=self.id,
+            blocked_user_id=user.id
+        ).first()
+        if block:
+            db.session.delete(block)
+            db.session.commit()
+
+    def has_blocked(self, user):
+        return BlockedUser.query.filter_by(
+            user_id=self.id,
+            blocked_user_id=user.id
+        ).first() is not None
+
+    def is_blocked_by(self, user):
+        return BlockedUser.query.filter_by(
+            user_id=user.id,
+            blocked_user_id=self.id
+        ).first() is not None
+    
+    @property
+    def get_cover_photo(self):
+        if not self.cover_photo or not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], self.cover_photo)):
+            return 'default_cover.jpg'
+        return self.cover_photo
+    
+    def send_friend_request(self, user):
+        if not self.has_sent_friend_request(user):
+            request = FriendRequest(sender=self, recipient=user)
+            db.session.add(request)
+            notification = Notification(
+                user=user,
+                content=f"{self.username} sent you a friend request",
+                notification_type="friend_request"
+            )
+            db.session.add(notification)
+            db.session.commit()
+    
+    def accept_friend_request(self, user):
+        request = FriendRequest.query.filter_by(sender_id=user.id, recipient_id=self.id).first()
+        if request:
+            self.friends.append(user)
+            user.friends.append(self)
+            db.session.delete(request)
+            notification = Notification(
+                user=user,
+                content=f"{self.username} accepted your friend request",
+                notification_type="friend_accept"
+            )
+            db.session.add(notification)
+            db.session.commit()
+    
+    def has_sent_friend_request(self, user):
+        return FriendRequest.query.filter_by(
+            sender_id=self.id,
+            recipient_id=user.id
+        ).first() is not None
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+        
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+# Post Model
+class Post(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=True)  # Explicitly nullable
+    media_type = db.Column(db.String(10), nullable=True)  # 'image' or 'video'
+    media_file = db.Column(db.String(200), nullable=True)
+    feeling = db.Column(db.String(50), nullable=True)  # Store the selected emoji feeling
+    link = db.Column(db.String(2048), nullable=True)  # Store URLs
+    link_title = db.Column(db.String(200), nullable=True)  # Store link preview title
+    link_image = db.Column(db.String(2048), nullable=True)  # Store link preview image URL
+    link_description = db.Column(db.Text, nullable=True)  # Store link preview description
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    likes = db.relationship('Like', backref='post', lazy=True)
+    comments = db.relationship('Comment', backref='post', lazy=True)
+    
+    @property
+    def media_url(self):
+        if self.media_file and os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], self.media_file)):
+            return url_for('uploaded_file', filename=self.media_file)
+        return None
+
+# Like Model
+class Like(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    settings = current_user.get_settings()
+    if request.method == 'POST':
+        show_online = request.form.get('show_online_status') == 'on'
+        theme = request.form.get('theme', 'light')
+        
+        settings.show_online_status = show_online
+        settings.theme = theme
+        db.session.commit()
+        flash('Settings updated successfully!', 'success')
+        return redirect(url_for('settings'))
+    
+    return render_template('settings.html', settings=settings)
+
+@app.route('/block/<int:user_id>', methods=['POST'])
+@login_required
+def block_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if user == current_user:
+        flash('You cannot block yourself!', 'error')
+        return redirect(url_for('profile', username=user.username))
+    
+    current_user.block_user(user)
+    flash(f'You have blocked {user.username}', 'success')
+    return redirect(url_for('profile', username=user.username))
+
+@app.route('/unblock/<int:user_id>', methods=['POST'])
+@login_required
+def unblock_user(user_id):
+    user = User.query.get_or_404(user_id)
+    current_user.unblock_user(user)
+    flash(f'You have unblocked {user.username}', 'success')
+    return redirect(url_for('profile', username=user.username))
+
+@app.before_request
+def before_request():
+    if current_user.is_authenticated:
+        current_user.update_last_seen()
+        
+@app.route('/toggle_online_status', methods=['POST'])
+@login_required
+def toggle_online_status():
+    settings = current_user.get_settings()
+    settings.show_online_status = not settings.show_online_status
+    db.session.commit()
+    status = 'visible' if settings.show_online_status else 'hidden'
+    flash(f'Your online status is now {status}', 'success')
+    return redirect(url_for('settings'))
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Comment Model
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+
+# Message Model
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text)
+    media_type = db.Column(db.String(10))  # 'image' or 'video'
+    media_file = db.Column(db.String(200))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+    
+    @property
+    def media_url(self):
+        if self.media_file and os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], self.media_file)):
+            return url_for('uploaded_file', filename=self.media_file)
+        return None
+
+# Add models to admin interface after all models are defined
+admin.add_view(ModelView(User, db.session))
+admin.add_view(ModelView(Post, db.session))
+admin.add_view(ModelView(Like, db.session))
+admin.add_view(ModelView(Comment, db.session))
+admin.add_view(ModelView(Message, db.session))
+admin.add_view(ModelView(FriendRequest, db.session))
+admin.add_view(ModelView(Notification, db.session))
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Routes
+@app.route('/')
+def index():
+    if current_user.is_authenticated:
+        posts = Post.query.order_by(Post.timestamp.desc()).all()
+        return render_template('index.html', posts=posts)
+    return redirect(url_for('login'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        email = request.form['email']
+        password = request.form['password']
+        
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists')
+            return redirect(url_for('register'))
+            
+        if User.query.filter_by(email=email).first():
+            flash('Email already registered')
+            return redirect(url_for('register'))
+            
+        user = User(username=username, email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        
+        flash('Registration successful')
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = User.query.filter_by(username=request.form['username']).first()
+        if user and user.check_password(request.form['password']):
+            login_user(user)
+            user.set_online_status(True)
+            return redirect(url_for('index'))
+        flash('Invalid username or password')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    current_user.set_online_status(False)
+    logout_user()
+    return redirect(url_for('login'))
+
+def allowed_file(filename, file_type='image'):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS[file_type]
+
+def extract_url_from_content(content):
+    # Regular expression to find URLs in text
+    url_pattern = r'https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
+    urls = re.findall(url_pattern, content)
+    return urls[0] if urls else None
+
+def get_link_preview(url):
+    if not LINK_PREVIEW_ENABLED:
+        return {
+            'title': '',
+            'description': '',
+            'image': ''
+        }
+    
+    try:
+        # Add headers to mimic a browser request
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Get title
+        title = soup.title.string if soup.title else ''
+
+        # Get description from meta tags
+        description = ''
+        meta_desc = soup.find('meta', {'name': ['description', 'og:description'], 'content': True})
+        if meta_desc:
+            description = meta_desc.get('content')
+
+        # Get preview image from meta tags
+        image = ''
+        meta_img = soup.find('meta', {'property': 'og:image', 'content': True})
+        if meta_img:
+            image = meta_img.get('content')
+
+        return {
+            'title': title[:200] if title else '',
+            'description': description[:500] if description else '',
+            'image': image[:2048] if image else ''
+        }
+    except Exception as e:
+        print(f"Error getting link preview: {str(e)}")
+        return {
+            'title': '',
+            'description': '',
+            'image': ''
+        }
+
+def save_media(file, file_type='image'):
+    if file and allowed_file(file.filename, file_type):
+        filename = secure_filename(f"{uuid.uuid4()}_{file.filename}")
+        
+        # Create media type subfolder if it doesn't exist
+        media_folder = os.path.join(app.config['UPLOAD_FOLDER'], file_type)
+        os.makedirs(media_folder, exist_ok=True)
+        
+        # Save the file in the appropriate subfolder
+        file_path = os.path.join(media_folder, filename)
+        file.save(file_path)
+        return f"{file_type}/{filename}"
+    return None
+
+def get_file_type(filename):
+    if not filename or '.' not in filename:
+        return None
+    ext = filename.rsplit('.', 1)[1].lower()
+    if ext in ALLOWED_EXTENSIONS['image']:
+        return 'image'
+    elif ext in ALLOWED_EXTENSIONS['video']:
+        return 'video'
+    return None
+
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    # Split the path into media type and actual filename
+    if '/' in filename:
+        media_type, actual_filename = filename.split('/', 1)
+        return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], media_type), actual_filename)
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/create_post', methods=['POST'])
+@login_required
+def create_post():
+    # Get the form data
+    content = request.form.get('content', '')
+    media = request.files.get('media')
+    feeling = request.form.get('feeling', '')
+    
+    # Strip whitespace from text fields
+    content = content.strip() if content else None
+    feeling = feeling.strip() if feeling else None
+    
+    # Process media if uploaded
+    media_type = None
+    media_filename = None
+    if media and media.filename:
+        media_type = get_file_type(media.filename)
+        if media_type:
+            media_filename = save_media(media, media_type)
+    
+    # Extract and process link if present in content
+    link = None
+    link_title = None
+    link_description = None
+    link_image = None
+    
+    if content:
+        url = extract_url_from_content(content)
+        if url:
+            link = url
+            preview = get_link_preview(url)
+            link_title = preview['title']
+            link_description = preview['description']
+            link_image = preview['image']
+    
+    # Create post if there's any content, media, feeling, or link
+    if content or media_filename or feeling or link:
+        post = Post(
+            content=content,
+            media_type=media_type,
+            media_file=media_filename,
+            feeling=feeling,
+            link=link,
+            link_title=link_title,
+            link_description=link_description,
+            link_image=link_image,
+            author=current_user
+        )
+        db.session.add(post)
+        db.session.commit()
+        flash('Post created successfully!', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/like/<int:post_id>', methods=['POST'])
+@login_required
+def like_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    existing_like = Like.query.filter_by(user_id=current_user.id, post_id=post_id).first()
+    
+    if existing_like:
+        db.session.delete(existing_like)
+    else:
+        like = Like(user_id=current_user.id, post_id=post_id)
+        db.session.add(like)
+    
+    db.session.commit()
+    return redirect(request.referrer or url_for('index'))
+
+@app.route('/comment/<int:post_id>', methods=['POST'])
+@login_required
+def add_comment(post_id):
+    content = request.form['content']
+    if content:
+        comment = Comment(content=content, user_id=current_user.id, post_id=post_id)
+        db.session.add(comment)
+        db.session.commit()
+    return redirect(request.referrer or url_for('index'))
+
+@app.route('/delete_post/<int:post_id>', methods=['POST'])
+@login_required
+def delete_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    if post.author != current_user:
+        flash('You cannot delete someone else\'s post!', 'error')
+        return redirect(url_for('index'))
+        
+    # Delete associated likes and comments first
+    Like.query.filter_by(post_id=post.id).delete()
+    Comment.query.filter_by(post_id=post.id).delete()
+    
+    # Delete media file if exists
+    if post.media_file:
+        media_path = os.path.join(app.config['UPLOAD_FOLDER'], post.media_type, os.path.basename(post.media_file))
+        if os.path.exists(media_path):
+            os.remove(media_path)
+    
+    db.session.delete(post)
+    db.session.commit()
+    flash('Post deleted successfully!', 'success')
+    return redirect(request.referrer or url_for('index'))
+
+@app.route('/delete_comment/<int:comment_id>', methods=['POST'])
+@login_required
+def delete_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.author != current_user:
+        flash('You cannot delete someone else\'s comment!', 'error')
+        return redirect(url_for('index'))
+    
+    db.session.delete(comment)
+    db.session.commit()
+    flash('Comment deleted successfully!', 'success')
+    return redirect(request.referrer or url_for('index'))
+
+@app.route('/profile/<username>')
+@login_required
+def profile(username):
+    user = User.query.filter_by(username=username).first_or_404()
+    posts = Post.query.filter_by(user_id=user.id).order_by(Post.timestamp.desc()).all()
+    is_friend = current_user.is_friend(user)
+    has_sent_request = current_user.has_sent_friend_request(user)
+    received_request = FriendRequest.query.filter_by(sender_id=user.id, recipient_id=current_user.id).first() is not None
+    friend_count = user.friends.count()
+    recent_friends = user.friends.limit(6).all()
+    
+    return render_template('profile.html', 
+                         user=user, 
+                         posts=posts, 
+                         is_friend=is_friend,
+                         has_sent_request=has_sent_request,
+                         received_request=received_request,
+                         friend_count=friend_count,
+                         recent_friends=recent_friends)
+
+@app.route('/edit_profile', methods=['GET', 'POST'])
+@login_required
+def edit_profile():
+    if request.method == 'POST':
+        bio = request.form['bio']
+        profile_pic = request.files.get('profile_picture')
+        cover_photo = request.files.get('cover_photo')
+        
+        if profile_pic and profile_pic.filename:
+            if not allowed_file(profile_pic.filename, 'image'):
+                flash('Invalid file type. Allowed types are: ' + ', '.join(ALLOWED_EXTENSIONS['image']), 'error')
+            else:
+                try:
+                    filename = save_media(profile_pic, 'image')
+                    if filename:
+                        # Delete old profile picture if it's not the default
+                        if current_user.profile_picture != 'default.jpg':
+                            old_file = os.path.join(app.config['UPLOAD_FOLDER'], current_user.profile_picture)
+                            if os.path.exists(old_file):
+                                os.remove(old_file)
+                        current_user.profile_picture = filename
+                        flash('Profile picture updated successfully!', 'success')
+                except Exception as e:
+                    flash('Error uploading profile picture. Please try again.', 'error')
+                    print(f"Error uploading file: {str(e)}")
+        
+        if cover_photo and cover_photo.filename:
+            if not allowed_file(cover_photo.filename, 'image'):
+                flash('Invalid file type for cover photo. Allowed types are: ' + ', '.join(ALLOWED_EXTENSIONS['image']), 'error')
+            else:
+                try:
+                    filename = save_media(cover_photo, 'image')
+                    if filename:
+                        if current_user.cover_photo != 'default_cover.jpg':
+                            old_file = os.path.join(app.config['UPLOAD_FOLDER'], current_user.cover_photo)
+                            if os.path.exists(old_file):
+                                os.remove(old_file)
+                        current_user.cover_photo = filename
+                        flash('Cover photo updated successfully!', 'success')
+                except Exception as e:
+                    flash('Error uploading cover photo. Please try again.', 'error')
+                    print(f"Error uploading file: {str(e)}")
+        
+        current_user.bio = bio
+        db.session.commit()
+        flash('Profile updated successfully!', 'success')
+        return redirect(url_for('profile', username=current_user.username))
+    
+    return render_template('edit_profile.html')
+
+@app.route('/friends/<username>')
+@login_required
+def friends_list(username):
+    user = User.query.filter_by(username=username).first_or_404()
+    friends = user.friends.all()
+    # For each friend, check if the current user is already friends with them
+    for friend in friends:
+        friend.is_friend_with_current = current_user.is_friend(friend)
+        friend.has_pending_request = current_user.has_sent_friend_request(friend)
+    return render_template('friends_list.html', 
+                         user=user, 
+                         friends=friends,
+                         current_user=current_user)
+
+@app.route('/search')
+@login_required
+def search():
+    query = request.args.get('q', '')
+    if query:
+        users = User.query.filter(
+            (User.username.ilike(f'%{query}%')) |
+            (User.email.ilike(f'%{query}%')) |
+            (User.bio.ilike(f'%{query}%'))
+        ).all()
+    else:
+        users = []
+    return render_template('search.html', users=users, query=query)
+
+@app.route('/messages')
+@login_required
+def messages():
+    messages_received = Message.query.filter_by(recipient_id=current_user.id).order_by(Message.timestamp.desc()).all()
+    messages_sent = Message.query.filter_by(sender_id=current_user.id).order_by(Message.timestamp.desc()).all()
+    return render_template('messages.html', 
+                         messages_received=messages_received, 
+                         messages_sent=messages_sent,
+                         user_query=User.query)
+
+@app.route('/notifications')
+@login_required
+def notifications():
+    notifications = Notification.query.filter_by(user_id=current_user.id).order_by(Notification.timestamp.desc()).all()
+    
+    # Mark all notifications as read
+    for notification in notifications:
+        if not notification.is_read:
+            notification.is_read = True
+    db.session.commit()
+    
+    return render_template('notifications.html', notifications=notifications)
+
+@app.route('/notifications/mark_read/<int:notification_id>', methods=['POST'])
+@login_required
+def mark_notification_read(notification_id):
+    notification = Notification.query.get_or_404(notification_id)
+    if notification.user_id == current_user.id:
+        notification.is_read = True
+        db.session.commit()
+    return redirect(url_for('notifications'))
+
+@app.route('/notifications/delete/<int:notification_id>', methods=['POST'])
+@login_required
+def delete_notification(notification_id):
+    notification = Notification.query.get_or_404(notification_id)
+    if notification.user_id == current_user.id:
+        db.session.delete(notification)
+        db.session.commit()
+    return redirect(url_for('notifications'))
+
+@app.route('/send_message/<int:recipient_id>', methods=['POST'])
+@login_required
+def send_message(recipient_id):
+    content = request.form['content']
+    media = request.files.get('media')
+    
+    if content or media:
+        media_type = None
+        media_filename = None
+        
+        if media:
+            media_type = get_file_type(media.filename)
+            if media_type:
+                media_filename = save_media(media, media_type)
+        
+        message = Message(
+            sender_id=current_user.id,
+            recipient_id=recipient_id,
+            content=content,
+            media_type=media_type,
+            media_file=media_filename
+        )
+        db.session.add(message)
+
+        # Create notification for the recipient
+        notification = Notification(
+            user_id=recipient_id,
+            content=f"New message from {current_user.username}",
+            notification_type="message"
+        )
+        db.session.add(notification)
+        
+        db.session.commit()
+
+        # Send real-time notification via WebSocket
+        socketio.emit('new_message', {
+            'type': 'message',
+            'recipient_id': recipient_id,
+            'message': {
+                'sender_username': current_user.username,
+                'content': content,
+                'media_type': media_type,
+                'media_url': message.media_url if media_filename else None,
+                'timestamp': message.timestamp.strftime('%Y-%m-%d %H:%M')
+            }
+        })
+
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'status': 'success',
+                'message': 'Message sent successfully'
+            })
+        else:
+            flash('Message sent successfully!', 'success')
+            return redirect(request.referrer or url_for('messages'))
+    
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({
+            'status': 'error',
+            'message': 'Message content required'
+        })
+    else:
+        flash('Message content required', 'error')
+        return redirect(request.referrer or url_for('messages'))
+
+@app.route('/friend_requests')
+@login_required
+def friend_requests():
+    received_requests = FriendRequest.query.filter_by(recipient_id=current_user.id).all()
+    sent_requests = FriendRequest.query.filter_by(sender_id=current_user.id).all()
+    return render_template('friend_requests.html', received_requests=received_requests, sent_requests=sent_requests)
+
+@app.route('/send_friend_request/<int:user_id>', methods=['POST'])
+@login_required
+def send_friend_request(user_id):
+    user = User.query.get_or_404(user_id)
+    current_user.send_friend_request(user)
+    flash('Friend request sent!')
+    return redirect(url_for('profile', username=user.username))
+
+@app.route('/accept_friend_request/<int:user_id>', methods=['POST'])
+@login_required
+def accept_friend_request(user_id):
+    user = User.query.get_or_404(user_id)
+    current_user.accept_friend_request(user)
+    flash('Friend request accepted!')
+    return redirect(url_for('friend_requests'))
+
+@app.route('/decline_friend_request/<int:request_id>', methods=['POST'])
+@login_required
+def decline_friend_request(request_id):
+    friend_request = FriendRequest.query.get_or_404(request_id)
+    if friend_request.recipient_id == current_user.id:
+        db.session.delete(friend_request)
+        db.session.commit()
+        flash('Friend request declined')
+    return redirect(url_for('friend_requests'))
+
+# Database initialization
+def init_database():
+    with app.app_context():
+        db.drop_all()  # Drop all existing tables
+        db.create_all()  # Create all tables
+        print('Database initialized!')
+
+@app.route('/notifications/unread')
+@login_required
+def check_unread_notifications():
+    unread_count = Notification.query.filter_by(
+        user_id=current_user.id,
+        is_read=False
+    ).count()
+    return jsonify({'unread_count': unread_count})
+
+@socketio.on('connect')
+def handle_connect():
+    if current_user.is_authenticated:
+        current_user.update_last_seen()
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    if current_user.is_authenticated:
+        current_user.set_offline()
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    # For local development you can run with SocketIO server.
+    # In hosted WSGI environments (like PythonAnywhere) the WSGI server will import `app` from this file.
+    socketio.run(app, debug=True)

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en" {% if current_user.is_authenticated %}data-bs-theme="{{ current_user.get_settings().theme }}"{% endif %}>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HDM - Connect with friends</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .feeling-btn {
+            transition: all 0.2s;
+        }
+        .feeling-btn:hover {
+            transform: scale(1.1);
+        }
+        .feeling-btn.selected {
+            background-color: #e3f2fd;
+            border-color: #90caf9;
+        }
+        .feeling-emoji {
+            font-size: 1.1em;
+            display: inline-block;
+            vertical-align: middle;
+            margin-bottom: 2px;
+        }
+        .feeling-display {
+            padding: 0.5rem;
+            background-color: rgba(0, 0, 0, 0.03);
+            border-radius: 0.5rem;
+            display: inline-block;
+        }
+        .feeling-text {
+            color: #6c757d;
+            font-style: italic;
+        }
+        #selectedFeelingDisplay {
+            transition: all 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <img src="{{ url_for('static', filename='images/new_logo.svg') }}" alt="HDM" height="40" style="filter: drop-shadow(0 0 4px rgba(255,255,255,0.3));">
+            </a>
+            
+            {% if current_user.is_authenticated %}
+            <div class="d-flex align-items-center ms-auto">
+                <!-- Search Bar -->
+                <form action="{{ url_for('search') }}" method="GET" class="d-flex me-3">
+                    <input class="form-control me-2 rounded-pill" type="search" name="q" placeholder="Search users..." aria-label="Search">
+                    <button class="btn btn-light rounded-pill" type="submit">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </form>
+
+                <!-- Notifications -->
+                <a href="{{ url_for('notifications') }}" class="icon-button position-relative me-3 text-white">
+                    <i class="bi bi-bell-fill fs-5"></i>
+                    {% set unread_notifications = current_user.notifications|selectattr('is_read', 'false')|list %}
+                    {% if unread_notifications %}
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {{ unread_notifications|length }}
+                    </span>
+                    {% endif %}
+                </a>
+
+                <!-- Friend Requests -->
+                <a href="{{ url_for('friend_requests') }}" class="icon-button position-relative me-3 text-white">
+                    <i class="bi bi-people-fill fs-5"></i>
+                    {% set friend_requests = current_user.friend_requests_received.all() %}
+                    {% if friend_requests %}
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {{ friend_requests|length }}
+                    </span>
+                    {% endif %}
+                </a>
+
+                <!-- Messages -->
+                <a href="{{ url_for('messages') }}" class="icon-button position-relative me-3 text-white">
+                    <i class="bi bi-chat-fill fs-5"></i>
+                    {% set unread_messages = current_user.messages_received|selectattr('is_read', 'false')|list %}
+                    {% if unread_messages %}
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {{ unread_messages|length }}
+                    </span>
+                    {% endif %}
+                </a>
+
+                <!-- User Menu -->
+                <div class="dropdown">
+                    <button class="btn btn-link text-decoration-none p-0" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <img src="{{ url_for('uploaded_file', filename=current_user.get_profile_picture) }}" class="profile-picture-small" alt="">
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                        <li><a class="dropdown-item" href="{{ url_for('profile', username=current_user.username) }}">
+                            <i class="bi bi-person-circle me-2"></i>Profile
+                        </a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('settings') }}">
+                            <i class="bi bi-gear-fill me-2"></i>Settings
+                        </a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                            <i class="bi bi-box-arrow-right me-2"></i>Logout
+                        </a></li>
+                    </ul>
+                </div>
+            </div>
+            {% else %}
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="{{ url_for('login') }}">Login</a>
+                    <a class="nav-link" href="{{ url_for('register') }}">Register</a>
+                </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="container" style="margin-top: 80px;">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-info alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Feeling buttons handler
+            const feelingBtns = document.querySelectorAll('.feeling-btn');
+            const selectedFeelingInput = document.getElementById('selectedFeeling');
+            const selectedFeelingDisplay = document.getElementById('selectedFeelingDisplay');
+            const selectedFeelingText = document.querySelector('.selected-feeling-text');
+            let currentFeeling = null;
+            
+            feelingBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    // Remove selected class from all buttons
+                    feelingBtns.forEach(b => b.classList.remove('selected'));
+                    // Add selected class to clicked button
+                    this.classList.add('selected');
+                    // Set the selected feeling
+                    const feeling = this.textContent.trim();  // Use the actual emoji and text
+                    currentFeeling = feeling;
+                    
+                    if (selectedFeelingInput) {
+                        selectedFeelingInput.value = feeling;
+                    }
+                    // Update feeling display
+                    if (selectedFeelingDisplay && selectedFeelingText) {
+                        selectedFeelingText.textContent = feeling;
+                        selectedFeelingDisplay.classList.remove('d-none');
+                    }
+                    // Close the modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('feelingModal'));
+                    if (modal) {
+                        modal.hide();
+                    }
+                });
+            });
+            
+            // Modal close button handler
+            const closeModalBtn = document.querySelector('[data-bs-dismiss="modal"]');
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', function() {
+                    // Reset feeling only when explicitly closing without selection
+                    const feelingBtns = document.querySelectorAll('.feeling-btn');
+                    feelingBtns.forEach(btn => btn.classList.remove('selected'));
+                    if (selectedFeelingInput) {
+                        selectedFeelingInput.value = currentFeeling || '';
+                    }
+                    if (selectedFeelingDisplay) {
+                        if (currentFeeling) {
+                            selectedFeelingDisplay.classList.remove('d-none');
+                            if (selectedFeelingText) {
+                                selectedFeelingText.textContent = currentFeeling;
+                            }
+                        } else {
+                            selectedFeelingDisplay.classList.add('d-none');
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

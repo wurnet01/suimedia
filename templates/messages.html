@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Conversations</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% set unique_users = {} %}
+                    {% for message in messages_received %}
+                        {% if message.sender.id not in unique_users %}
+                            {% set _ = unique_users.update({message.sender.id: true}) %}
+                            <a href="?user={{ message.sender.id }}" class="list-group-item list-group-item-action">
+                                <div class="d-flex align-items-center">
+                                    <img src="{{ url_for('uploaded_file', filename=message.sender.get_profile_picture) }}" class="rounded-circle me-2" width="40" height="40" alt="Profile Picture">
+                                    <div>
+                                        <h6 class="mb-0">{{ message.sender.username }}</h6>
+                                        <small class="text-muted">{{ message.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                                    </div>
+                                </div>
+                            </a>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            {% if request.args.get('user') %}
+                {% set other_user = user_query.get(request.args.get('user')|int) %}
+                {% if other_user %}
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex align-items-center">
+                                <img src="{{ url_for('uploaded_file', filename=other_user.profile_picture) }}" class="rounded-circle me-2" width="40" height="40" alt="Profile Picture">
+                                <h5 class="mb-0">{{ other_user.username }}</h5>
+                            </div>
+                        </div>
+                        <div class="card-body" style="height: 400px; overflow-y: auto;">
+                            {% set conversation = (messages_sent + messages_received)|selectattr("sender_id", "equalto", other_user.id)|list + (messages_sent + messages_received)|selectattr("recipient_id", "equalto", other_user.id)|list %}
+                            {% for message in conversation|sort(attribute="timestamp") %}
+                                <div class="d-flex mb-3 {% if message.sender_id == current_user.id %}justify-content-end{% endif %}">
+                                    <div class="{% if message.sender_id == current_user.id %}bg-primary text-white{% else %}bg-light{% endif %} rounded p-2" style="max-width: 70%;">
+                                        {% if message.content %}
+                                            <p class="mb-1">{{ message.content }}</p>
+                                        {% endif %}
+                                        {% if message.media_file %}
+                                            {% if message.media_type == 'image' %}
+                                                <img src="{{ url_for('uploaded_file', filename=message.media_file) }}" class="img-fluid rounded mb-2" alt="Message image">
+                                            {% elif message.media_type == 'video' %}
+                                                <video class="w-100 rounded mb-2" controls>
+                                                    <source src="{{ url_for('uploaded_file', filename=message.media_file) }}" type="video/mp4">
+                                                    Your browser does not support the video tag.
+                                                </video>
+                                            {% endif %}
+                                        {% endif %}
+                                        <small class="{% if message.sender_id == current_user.id %}text-white-50{% else %}text-muted{% endif %}">
+                                            {{ message.timestamp.strftime('%H:%M') }}
+                                        </small>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        <div class="card-footer">
+                            <form method="POST" action="{{ url_for('send_message', recipient_id=other_user.id) }}" enctype="multipart/form-data">
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control" name="content" placeholder="Type your message...">
+                                    <label class="btn btn-outline-primary" for="message-media">
+                                        <i class="bi bi-paperclip"></i>
+                                        <input type="file" class="d-none" id="message-media" name="media" accept="image/*,video/*">
+                                    </label>
+                                    <button type="submit" class="btn btn-primary">Send</button>
+                                </div>
+                                <small class="text-muted d-none" id="selected-media"></small>
+                            </form>
+                            <script>
+                                document.getElementById('message-media').addEventListener('change', function() {
+                                    const fileInfo = document.getElementById('selected-media');
+                                    if (this.files.length > 0) {
+                                        fileInfo.textContent = 'Selected: ' + this.files[0].name;
+                                        fileInfo.classList.remove('d-none');
+                                    } else {
+                                        fileInfo.classList.add('d-none');
+                                    }
+                                });
+                            </script>
+                        </div>
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="text-center p-5">
+                    <h4>Select a conversation to start messaging</h4>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

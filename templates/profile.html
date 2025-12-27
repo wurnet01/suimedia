@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="profile-header">
+                <div class="position-relative">
+                    <img src="{{ url_for('uploaded_file', filename=user.cover_photo) }}" class="w-100" style="height: 300px; object-fit: cover;" alt="Cover Photo">
+                    <img src="{{ url_for('uploaded_file', filename=user.get_profile_picture) }}" class="profile-picture position-absolute" style="bottom: -50px; left: 30px;" alt="Profile Picture">
+                </div>
+                <div class="container">
+                    <div class="row mt-5 pt-4">
+                        <div class="col-md-8">
+                            <h2 class="mb-0">{{ user.username }}</h2>
+                            <p class="text-muted">{{ user.bio or 'No bio yet.' }}</p>
+                            <p>
+                                <a href="{{ url_for('friends_list', username=user.username) }}" class="text-decoration-none">
+                                    <strong>{{ friend_count }}</strong> {% if friend_count == 1 %}friend{% else %}friends{% endif %}
+                                </a>
+                            </p>
+                            <div class="user-details mt-3">
+                                {% if user.current_job or user.job_title or user.company %}
+                                <div class="mb-2">
+                                    <i class="bi bi-briefcase me-2"></i>
+                                    {% if user.job_title %}{{ user.job_title }}{% endif %}
+                                    {% if user.company %} at {{ user.company }}{% endif %}
+                                    {% if user.current_job %} - {{ user.current_job }}{% endif %}
+                                </div>
+                                {% endif %}
+                                {% if user.education %}
+                                <div class="mb-2">
+                                    <i class="bi bi-mortarboard me-2"></i>
+                                    {% for edu in user.education %}
+                                        {{ edu.degree }} in {{ edu.field_of_study }} at {{ edu.institution }}
+                                        {% if not loop.last %}<br>{% endif %}
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                {% if user.current_city %}
+                                <div class="mb-2">
+                                    <i class="bi bi-geo-alt me-2"></i> Lives in {{ user.current_city }}
+                                </div>
+                                {% endif %}
+                                {% if user.place_of_birth %}
+                                <div class="mb-2">
+                                    <i class="bi bi-house-heart me-2"></i> From {{ user.place_of_birth }}
+                                </div>
+                                {% endif %}
+                                {% if user.date_of_birth %}
+                                <div class="mb-2">
+                                    <i class="bi bi-calendar-event me-2"></i> Born on {{ user.date_of_birth.strftime('%B %d, %Y') }}
+                                </div>
+                                {% endif %}
+                                {% if user.marital_status %}
+                                <div class="mb-2">
+                                    <i class="bi bi-heart me-2"></i> {{ user.marital_status }}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            {% if user == current_user %}
+                                <a href="{{ url_for('edit_profile') }}" class="btn btn-primary">
+                                    <i class="bi bi-pencil-fill me-2"></i>Edit Profile
+                                </a>
+                            {% else %}
+                                <div class="btn-group">
+                                    {% if not current_user.has_blocked(user) %}
+                                        {% set has_sent_request = current_user.has_sent_friend_request(user) %}
+                                        {% if not has_sent_request and user not in current_user.friends %}
+                                            <form action="{{ url_for('send_friend_request', user_id=user.id) }}" method="POST" class="d-inline">
+                                                <button type="submit" class="btn btn-primary">
+                                                    <i class="bi bi-person-plus-fill me-2"></i>Add Friend
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                        <a href="{{ url_for('messages') }}?user={{ user.id }}" class="btn btn-outline-primary ms-2">
+                                            <i class="bi bi-chat-fill me-2"></i>Message
+                                        </a>
+                                        <form action="{{ url_for('block_user', user_id=user.id) }}" method="POST" class="d-inline ms-2">
+                                            <button type="submit" class="btn btn-danger">
+                                                <i class="bi bi-slash-circle me-2"></i>Block User
+                                            </button>
+                                        </form>
+                                    {% else %}
+                                        <form action="{{ url_for('unblock_user', user_id=user.id) }}" method="POST" class="d-inline">
+                                            <button type="submit" class="btn btn-outline-danger">
+                                                <i class="bi bi-slash-circle-fill me-2"></i>Unblock User
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <h3 class="mb-4">Posts</h3>
+            {% for post in posts %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center">
+                                <div>
+                                    <small class="text-muted">{{ post.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                                    {% if post.feeling %}
+                                        <span class="ms-2">• is feeling {{ post.feeling }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if post.author == current_user %}
+                            <div class="dropdown">
+                                <button class="btn btn-link text-muted" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li>
+                                        <form action="{{ url_for('delete_post', post_id=post.id) }}" method="POST" class="dropdown-item">
+                                            <button type="submit" class="btn btn-link text-danger p-0">
+                                                <i class="bi bi-trash me-2"></i>Delete Post
+                                            </button>
+                                        </form>
+                                    </li>
+                                </ul>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% if post.content %}
+                            <p class="card-text">{{ post.content }}</p>
+                        {% endif %}
+                        {% if post.media_file %}
+                            {% if post.media_type == 'image' %}
+                                <img src="{{ url_for('uploaded_file', filename=post.media_file) }}" class="img-fluid rounded mb-3" alt="Post image">
+                            {% elif post.media_type == 'video' %}
+                                <video class="w-100 rounded mb-3" controls>
+                                    <source src="{{ url_for('uploaded_file', filename=post.media_file) }}" type="video/mp4">
+                                    Your browser does not support the video tag.
+                                </video>
+                            {% endif %}
+                        {% endif %}
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <form method="POST" action="{{ url_for('like_post', post_id=post.id) }}" class="d-inline">
+                                {% set has_liked = false %}
+                                {% for like in post.likes %}
+                                    {% if like.user_id == current_user.id %}
+                                        {% set has_liked = true %}
+                                    {% endif %}
+                                {% endfor %}
+                                <button type="submit" class="btn btn-sm {% if has_liked %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                                    ❤ {{ post.likes|length }}
+                                </button>
+                            </form>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('comment-form-{{post.id}}').classList.toggle('d-none')">
+                                💬 {{ post.comments|length }}
+                            </button>
+                        </div>
+                        
+                        <!-- Comments Section -->
+                        <div id="comment-form-{{post.id}}" class="d-none">
+                            <form method="POST" action="{{ url_for('add_comment', post_id=post.id) }}" class="mb-3">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" name="content" placeholder="Write a comment..." required>
+                                    <button type="submit" class="btn btn-primary">Comment</button>
+                                </div>
+                            </form>
+                            {% for comment in post.comments %}
+                            <div class="d-flex mb-2">
+                                <img src="{{ url_for('uploaded_file', filename=comment.author.get_profile_picture) }}" class="rounded-circle me-2" width="32" height="32" alt="Profile Picture">
+                                <div class="bg-light rounded p-2 flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong class="me-2">{{ comment.author.username }}</strong>
+                                            <small class="text-muted">{{ comment.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                                        </div>
+                                        {% if comment.author == current_user %}
+                                        <form method="POST" action="{{ url_for('delete_comment', comment_id=comment.id) }}" class="d-inline">
+                                            <button type="submit" class="btn btn-link text-danger p-0">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                    <p class="mb-0">{{ comment.content }}</p>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

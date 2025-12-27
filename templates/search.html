@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <form action="{{ url_for('search') }}" method="GET" class="d-flex">
+                        <input type="text" name="q" class="form-control me-2" placeholder="Search for users..." value="{{ query }}">
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </form>
+                </div>
+            </div>
+
+            {% if query %}
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Search Results for "{{ query }}"</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for user in users %}
+                    <div class="list-group-item">
+                        <div class="d-flex align-items-center">
+                            <img src="{{ url_for('uploaded_file', filename=user.get_profile_picture) }}" 
+                                 class="profile-picture-small me-3" alt="{{ user.username }}">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-0">
+                                    <a href="{{ url_for('profile', username=user.username) }}" class="text-decoration-none">
+                                        {{ user.username }}
+                                    </a>
+                                </h6>
+                                {% if user.bio %}
+                                <small class="text-muted">{{ user.bio[:100] }}{% if user.bio|length > 100 %}...{% endif %}</small>
+                                {% endif %}
+                            </div>
+                            {% if user != current_user %}
+                            <div>
+                                {% if not current_user.has_sent_friend_request(user) and user not in current_user.friends %}
+                                <form action="{{ url_for('send_friend_request', user_id=user.id) }}" method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-primary btn-sm">Add Friend</button>
+                                </form>
+                                {% elif user in current_user.friends %}
+                                <span class="badge bg-success">Friends</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Request Sent</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="list-group-item text-center py-4">
+                        <i class="bi bi-search fs-1 text-muted"></i>
+                        <p class="mb-0 mt-2">No users found matching "{{ query }}"</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,316 @@
+:root {
+    --primary-color: #4267B2;
+    --primary-hover: #365899;
+    --bg-color: #E9EBEE;
+    --text-dark: #1c1e21;
+    --text-light: #65676b;
+    --border-color: #dddfe2;
+    --white: #ffffff;
+    --accent-color: #42b72a;
+    --accent-hover: #36a420;
+    --card-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+body {
+    background-color: var(--bg-color);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--text-dark);
+    min-height: 100vh;
+}
+
+/* Navbar styles */
+.navbar {
+    background-color: var(--primary-color);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    padding: 0.5rem 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.navbar-brand {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--white) !important;
+}
+
+.nav-item .nav-link {
+    position: relative;
+    padding: 0.5rem 1rem;
+    color: var(--text-light);
+}
+
+.nav-item .nav-link:hover {
+    color: var(--primary-color);
+}
+
+.nav-item .nav-link .badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    transform: translate(50%, -50%);
+}
+
+/* Card styles */
+.card {
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1rem;
+}
+
+.card-header {
+    background-color: var(--white);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Button styles */
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+/* Profile styles */
+.profile-header {
+    background-color: var(--white);
+    padding: 2rem 0;
+    margin-bottom: 1rem;
+    box-shadow: var(--card-shadow);
+    position: relative;
+}
+
+.profile-cover {
+    height: 350px;
+    background-size: cover;
+    background-position: center;
+    border-radius: 8px 8px 0 0;
+    position: relative;
+}
+
+.profile-picture-container {
+    position: absolute;
+    bottom: -50px;
+    left: 50px;
+}
+
+.profile-picture {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    border: 5px solid var(--white);
+    box-shadow: var(--card-shadow);
+    object-fit: cover;
+    background-color: var(--white);
+}
+
+.profile-picture-small {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--white);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Post styles */
+.post-card {
+    background-color: var(--white);
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--card-shadow);
+    transition: transform 0.2s ease;
+}
+
+.post-card:hover {
+    transform: translateY(-2px);
+}
+
+.post-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.post-content {
+    padding: 1rem;
+}
+
+.post-image {
+    width: 100%;
+    max-height: 500px;
+    object-fit: cover;
+}
+
+.post-actions {
+    padding: 0.5rem 1rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+}
+
+.action-button {
+    border: none;
+    background: none;
+    color: var(--text-light);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    transition: background-color 0.2s ease;
+}
+
+.action-button:hover {
+    background-color: var(--bg-color);
+    color: var(--primary-color);
+}
+
+/* Enhancement for images */
+.profile-picture,
+.profile-picture-small,
+.post-image {
+    position: relative;
+    overflow: hidden;
+}
+
+.profile-picture img,
+.profile-picture-small img,
+.post-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.post-header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+}
+
+.post-content {
+    padding: 0 16px 16px;
+}
+
+.post-image {
+    max-width: 100%;
+    height: auto;
+}
+
+.post-actions {
+    padding: 4px 16px;
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.post-comments {
+    padding: 8px 16px;
+}
+
+/* Create post card */
+.create-post-card {
+    background-color: var(--white);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    padding: 12px 16px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.create-post-input {
+    border-radius: 20px;
+    padding: 8px 12px;
+    background-color: var(--bg-color);
+    border: none;
+}
+
+/* Notification dropdown */
+.notification-dropdown {
+    min-width: 360px;
+    padding: 0;
+}
+
+.notification-item {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.notification-item:last-child {
+    border-bottom: none;
+}
+
+/* Friend request styles */
+.friend-request-card {
+    background-color: var(--white);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    padding: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Custom icons */
+.icon-button {
+    background: none;
+    border: none;
+    color: var(--text-light);
+    padding: 8px;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+}
+
+.icon-button:hover {
+    background-color: var(--bg-color);
+    color: var(--primary-color);
+}
+
+/* Login/Register pages */
+.auth-container {
+    max-width: 400px;
+    margin: 100px auto;
+}
+
+.auth-card {
+    background-color: var(--white);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+}
+
+.logo-large {
+    font-size: 3rem;
+    font-weight: bold;
+    color: var(--primary-color);
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+/* Comment section */
+.comment-box {
+    border-radius: 20px;
+    background-color: var(--bg-color);
+    padding: 8px 12px;
+    margin-top: 8px;
+}
+
+/* Messages */
+.message-list {
+    height: calc(100vh - 200px);
+    overflow-y: auto;
+}
+
+.message-bubble {
+    max-width: 70%;
+    padding: 8px 12px;
+    border-radius: 18px;
+    margin-bottom: 8px;
+}
+
+.message-sent {
+    background-color: var(--primary-color);
+    color: var(--white);
+    margin-left: auto;
+}
+
+.message-received {
+    background-color: var(--bg-color);
+}

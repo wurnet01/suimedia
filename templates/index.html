@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- Left Sidebar -->
+    <div class="col-md-3">
+        <div class="list-group mb-3">
+            <a href="{{ url_for('profile', username=current_user.username) }}" class="list-group-item list-group-item-action">
+                <i class="bi bi-person-circle me-3"></i>Profile
+            </a>
+            <a href="{{ url_for('friend_requests') }}" class="list-group-item list-group-item-action">
+                <i class="bi bi-people-fill me-3"></i>Friend Requests
+            </a>
+            <a href="{{ url_for('messages') }}" class="list-group-item list-group-item-action">
+                <i class="bi bi-chat-dots-fill me-3"></i>Messages
+            </a>
+            <a href="{{ url_for('notifications') }}" class="list-group-item list-group-item-action">
+                <i class="bi bi-bell-fill me-3"></i>Notifications
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="col-md-6">
+        <!-- Create Post Form -->
+        <div class="create-post-card mb-4">
+            <form method="POST" action="{{ url_for('create_post') }}" enctype="multipart/form-data">
+                <div class="d-flex mb-3">
+                    <img src="{{ url_for('uploaded_file', filename=current_user.get_profile_picture) }}" class="profile-picture-small me-2" alt="">
+                    <input type="text" class="form-control create-post-input" name="content" placeholder="What's on your mind, {{ current_user.username }}?" aria-label="Post content">
+                </div>
+                <div id="selectedFeelingDisplay" class="mb-3 ms-5 ps-2 d-none">
+                    <small class="text-muted">Feeling: <span class="selected-feeling-text"></span></small>
+                </div>
+                <div class="border-top pt-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="btn-group">
+                            <label class="btn btn-outline-primary" for="media">
+                                <i class="bi bi-image me-2"></i>Media
+                                <input type="file" class="d-none" id="media" name="media" accept="image/*,video/*">
+                            </label>
+                            <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#feelingModal">
+                                <i class="bi bi-emoji-smile me-2"></i>Feeling
+                            </button>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Post</button>
+                    </div>
+                </div>
+                <input type="hidden" name="feeling" id="selectedFeeling" value="">
+            </form>
+        </div>
+
+        <!-- Feeling Modal -->
+        <div class="modal fade" id="feelingModal" tabindex="-1" aria-labelledby="feelingModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="feelingModalLabel">How are you feeling?</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-light feeling-btn">😊 Happy</button>
+                            <button type="button" class="btn btn-light feeling-btn">🥰 Loved</button>
+                            <button type="button" class="btn btn-light feeling-btn">😢 Sad</button>
+                            <button type="button" class="btn btn-light feeling-btn">😴 Tired</button>
+                            <button type="button" class="btn btn-light feeling-btn">🤔 Thoughtful</button>
+                            <button type="button" class="btn btn-light feeling-btn">😎 Cool</button>
+                            <button type="button" class="btn btn-light feeling-btn">🥳 Celebrating</button>
+                            <button type="button" class="btn btn-light feeling-btn">😤 Frustrated</button>
+                            <button type="button" class="btn btn-light feeling-btn">🤩 Excited</button>
+                            <button type="button" class="btn btn-light feeling-btn">😌 Grateful</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Posts Feed -->
+        {% for post in posts %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="d-flex align-items-center">
+                        <img src="{{ url_for('uploaded_file', filename=post.author.get_profile_picture) }}" class="rounded-circle me-2" width="40" height="40" alt="Profile Picture">
+                        <div>
+                            <div class="d-flex align-items-center">
+                                <h6 class="card-subtitle mb-1 me-2">
+                                    <a href="{{ url_for('profile', username=post.author.username) }}" class="text-decoration-none">{{ post.author.username }}</a>
+                                </h6>
+                                {% if post.author.is_online %}
+                                    <span class="badge bg-success" style="font-size: 0.7em;">online</span>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted">
+                                {{ post.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                                {% if post.feeling %}
+                                    • is feeling <span class="feeling-emoji">{{ post.feeling }}</span>
+                                {% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    {% if post.author == current_user %}
+                    <div class="dropdown">
+                        <button class="btn btn-link text-muted" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <form action="{{ url_for('delete_post', post_id=post.id) }}" method="POST" class="dropdown-item">
+                                    <button type="submit" class="btn btn-link text-danger p-0">
+                                        <i class="bi bi-trash me-2"></i>Delete Post
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+                {% if post.content %}
+                    <p class="card-text">{{ post.content }}</p>
+                {% endif %}
+                {% if post.feeling %}
+                    <p class="card-text feeling-display mb-3">
+                        <span class="feeling-text">is feeling</span> 
+                        {{ post.feeling }}
+                    </p>
+                {% endif %}
+                {% if post.media_file %}
+                    {% if post.media_type == 'image' %}
+                        <img src="{{ url_for('uploaded_file', filename=post.media_file) }}" class="img-fluid rounded mb-3" alt="Post image">
+                    {% elif post.media_type == 'video' %}
+                        <video class="w-100 rounded mb-3" controls>
+                            <source src="{{ url_for('uploaded_file', filename=post.media_file) }}" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    {% endif %}
+                {% endif %}
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <form method="POST" action="{{ url_for('like_post', post_id=post.id) }}" class="d-inline">
+                        {% set has_liked = false %}
+                        {% for like in post.likes %}
+                            {% if like.user_id == current_user.id %}
+                                {% set has_liked = true %}
+                            {% endif %}
+                        {% endfor %}
+                        <button type="submit" class="btn btn-sm {% if has_liked %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                            ❤ {{ post.likes|length }}
+                        </button>
+                    </form>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('comment-form-{{post.id}}').classList.toggle('d-none')">
+                        💬 {{ post.comments|length }}
+                    </button>
+                </div>
+                
+                <!-- Comments Section -->
+                <div id="comment-form-{{post.id}}" class="d-none">
+                    <form method="POST" action="{{ url_for('add_comment', post_id=post.id) }}" class="mb-3">
+                        <div class="input-group">
+                            <input type="text" class="form-control" name="content" placeholder="Write a comment..." required>
+                            <button type="submit" class="btn btn-primary">Comment</button>
+                        </div>
+                    </form>
+                    {% for comment in post.comments %}
+                    <div class="d-flex mb-2">
+                        <img src="{{ url_for('uploaded_file', filename=comment.author.get_profile_picture) }}" class="rounded-circle me-2" width="32" height="32" alt="Profile Picture">
+                        <div class="bg-light rounded p-2 flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong class="me-2">{{ comment.author.username }}</strong>
+                                    <small class="text-muted">{{ comment.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </div>
+                                {% if comment.author == current_user %}
+                                <form action="{{ url_for('delete_comment', comment_id=comment.id) }}" method="POST" class="ms-2">
+                                    <button type="submit" class="btn btn-link text-danger p-0" style="font-size: 0.875rem;">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                            <p class="mb-0">{{ comment.content }}</p>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
