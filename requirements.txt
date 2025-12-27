@@ -7,3 +7,4 @@ Flask-Migrate
 requests
 beautifulsoup4
 eventlet
+gunicorn
